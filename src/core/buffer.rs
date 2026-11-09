@@ -171,6 +171,12 @@ mod tests {
 
     #[test]
     fn test_rope_buffer_line_col_conversions_and_edits() {
+        let empty_buf = TextBuffer::default();
+        assert!(empty_buf.is_empty());
+        assert_eq!(empty_buf.len_bytes(), 0);
+        assert_eq!(empty_buf.len_lines(), 1);
+        assert_eq!(empty_buf.char_at(0), None);
+
         let mut buf = TextBuffer::from_str("primeira\nsegunda linha\nterceira");
         assert!(!buf.is_empty());
         assert!(buf.len_bytes() > 0);
@@ -178,6 +184,8 @@ mod tests {
         assert_eq!(buf.line_text(0), "primeira");
         assert_eq!(buf.line_text(1), "segunda linha");
         assert_eq!(buf.line_text(2), "terceira");
+        assert_eq!(buf.line_text(99), "");
+        assert_eq!(buf.line_len_without_newline(99), 0);
 
         assert_eq!(buf.char_to_line_col(0), (1, 1));
         assert_eq!(buf.char_to_line_col(8), (1, 9));
@@ -186,13 +194,26 @@ mod tests {
 
         assert_eq!(buf.line_col_to_char(2, 4), 12);
         assert_eq!(buf.line_col_to_char(1, 999), 8);
+        assert_eq!(buf.line_start_char(1), 9);
+        assert_eq!(buf.line_end_char(1), 22);
+        assert_eq!(buf.slice_to_string(9..16), "segunda");
+        assert_eq!(buf.char_at(0), Some('p'));
 
         let v0 = buf.version();
+        buf.insert(9, ""); // no-op
+        assert_eq!(buf.version(), v0);
+
         buf.insert(9, "NOVA ");
         assert!(buf.version() > v0);
         assert_eq!(buf.line_text(1), "NOVA segunda linha");
 
+        buf.remove(9..9); // empty range no-op
         buf.remove(9..14);
         assert_eq!(buf.line_text(1), "segunda linha");
+
+        // CRLF line length handling
+        let crlf_buf = TextBuffer::from_str("linha1\r\nlinha2\r\n");
+        assert_eq!(crlf_buf.line_len_without_newline(0), 6);
+        assert_eq!(crlf_buf.line_text(0), "linha1");
     }
 }

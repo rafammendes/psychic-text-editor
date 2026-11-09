@@ -1242,4 +1242,237 @@ mod tests {
             "let item = 10;\nlet outro = item + item;\n"
         );
     }
+
+    #[test]
+    fn test_code_view_all_keyboard_shortcuts_ime_and_clipboard() {
+        let ctx = egui::Context::default();
+        let mut app = PsychicEditorApp::from_args(&[], false);
+        app.tabs[0].content = "    fn alpha() {\n        let x = alpha;\n    }\n".to_string();
+        app.tabs[0].syntax_name = "Rust".to_string();
+        app.tabs[0].mark_content_edited();
+        app.tabs[0].set_cursor_line_col(1, 9); // sobre `alpha`
+
+        // Frame 1: Foco inicial
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            app.render_editor_central(ctx);
+        });
+
+        // Frame 2: Alt+F3 (seleciona todas as ocorrências de `alpha`), Copy, Escape (recolhe para 1 cursor)
+        let mut input = egui::RawInput::default();
+        input.events.push(Event::Key {
+            key: Key::F3,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::ALT,
+        });
+        input.events.push(Event::Copy);
+        input.events.push(Event::Key {
+            key: Key::Escape,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::NONE,
+        });
+        // Mais um Escape recolhe a seleção única para caret
+        input.events.push(Event::Key {
+            key: Key::Escape,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::NONE,
+        });
+
+        let _ = ctx.run(input, |ctx| {
+            app.render_editor_central(ctx);
+        });
+        assert_eq!(app.tabs[0].selections.len(), 1);
+        assert!(app.tabs[0].selections.primary().is_empty());
+
+        // Frame 3: Testa IME (Preedit + Commit), Ctrl+/, Ctrl+Shift+Up/Down, Ctrl+Alt+Up/Down, Tab/Shift+Tab
+        let mut input2 = egui::RawInput::default();
+        input2
+            .events
+            .push(Event::Ime(ImeEvent::Preedit("ã".to_string())));
+        let _ = ctx.run(input2, |ctx| {
+            app.render_editor_central(ctx);
+        });
+
+        let mut input3 = egui::RawInput::default();
+        input3
+            .events
+            .push(Event::Ime(ImeEvent::Commit("ã".to_string())));
+        input3.events.push(Event::Ime(ImeEvent::Disabled));
+        input3.events.push(Event::Key {
+            key: Key::Backspace,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::NONE,
+        });
+        input3.events.push(Event::Key {
+            key: Key::Slash,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::CTRL,
+        });
+        input3.events.push(Event::Key {
+            key: Key::ArrowDown,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::CTRL | Modifiers::SHIFT,
+        });
+        input3.events.push(Event::Key {
+            key: Key::ArrowUp,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::CTRL | Modifiers::SHIFT,
+        });
+        input3.events.push(Event::Key {
+            key: Key::ArrowDown,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::CTRL | Modifiers::ALT,
+        });
+        input3.events.push(Event::Key {
+            key: Key::ArrowUp,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::CTRL | Modifiers::ALT,
+        });
+        for nav_key in [
+            Key::Home,
+            Key::End,
+            Key::ArrowLeft,
+            Key::ArrowRight,
+            Key::ArrowDown,
+            Key::ArrowUp,
+            Key::PageDown,
+            Key::PageUp,
+            Key::Tab,
+            Key::Delete,
+            Key::Enter,
+        ] {
+            input3.events.push(Event::Key {
+                key: nav_key,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: Modifiers::NONE,
+            });
+        }
+        // Ctrl+Y e Ctrl+Shift+Z (Redo), Ctrl+A, Ctrl+Shift+L, Paste, Cut, Ctrl+Shift+K
+        input3.events.push(Event::Key {
+            key: Key::A,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::CTRL,
+        });
+        input3.events.push(Event::Key {
+            key: Key::L,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::CTRL | Modifiers::SHIFT,
+        });
+        input3.events.push(Event::Paste("novo".to_string()));
+        input3.events.push(Event::Cut);
+        input3.events.push(Event::Key {
+            key: Key::K,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::CTRL | Modifiers::SHIFT,
+        });
+        input3.events.push(Event::Key {
+            key: Key::Z,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::CTRL,
+        });
+        input3.events.push(Event::Key {
+            key: Key::Y,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::CTRL,
+        });
+        input3.events.push(Event::Key {
+            key: Key::Z,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::CTRL | Modifiers::SHIFT,
+        });
+
+        let _ = ctx.run(input3, |ctx| {
+            app.render_editor_central(ctx);
+        });
+    }
+
+    #[test]
+    fn test_code_view_mouse_clicks_gutter_and_minimap() {
+        let ctx = egui::Context::default();
+        let mut app = PsychicEditorApp::from_args(&[], false);
+        app.tabs[0].content = (1..=60)
+            .map(|i| format!("    fn linha_{}() {{ let v = {}; }}", i, i))
+            .collect::<Vec<_>>()
+            .join("\n");
+        app.tabs[0].syntax_name = "Rust".to_string();
+        app.tabs[0].mark_content_edited();
+        app.search_open = true;
+        app.search_query = "linha_2".to_string();
+
+        // Clique na área de código (x=180, y=60)
+        let mut click_code = egui::RawInput::default();
+        let code_pos = pos2(180.0, 60.0);
+        click_code.events.push(Event::PointerMoved(code_pos));
+        click_code.events.push(Event::PointerButton {
+            pos: code_pos,
+            button: PointerButton::Primary,
+            pressed: true,
+            modifiers: Modifiers::NONE,
+        });
+        let _ = ctx.run(click_code, |ctx| {
+            app.render_editor_central(ctx);
+        });
+
+        // Ctrl+Clique em outra linha (x=180, y=100) adiciona 2º cursor!
+        let mut ctrl_click = egui::RawInput::default();
+        let pos2_code = pos2(180.0, 100.0);
+        ctrl_click.modifiers = Modifiers::CTRL;
+        ctrl_click.events.push(Event::PointerMoved(pos2_code));
+        ctrl_click.events.push(Event::PointerButton {
+            pos: pos2_code,
+            button: PointerButton::Primary,
+            pressed: true,
+            modifiers: Modifiers::CTRL,
+        });
+        let _ = ctx.run(ctrl_click, |ctx| {
+            app.render_editor_central(ctx);
+        });
+        assert_eq!(app.tabs[0].selections.len(), 2);
+
+        // Clique no Gutter (x=12, y=60) seleciona a linha inteira
+        let mut gutter_click = egui::RawInput::default();
+        let gutter_pos = pos2(12.0, 60.0);
+        gutter_click.events.push(Event::PointerMoved(gutter_pos));
+        gutter_click.events.push(Event::PointerButton {
+            pos: gutter_pos,
+            button: PointerButton::Primary,
+            pressed: true,
+            modifiers: Modifiers::NONE,
+        });
+        let _ = ctx.run(gutter_click, |ctx| {
+            app.render_editor_central(ctx);
+        });
+        assert!(!app.tabs[0].selections.primary().is_empty());
+    }
 }

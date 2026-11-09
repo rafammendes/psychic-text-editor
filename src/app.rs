@@ -1089,4 +1089,48 @@ mod tests {
             "Digitar após segurar seta para baixo deve ir direto para o input do Command Palette"
         );
     }
+
+    #[test]
+    fn test_all_sublime_editor_commands_and_minimap_toggle() {
+        let mut app = PsychicEditorApp::from_args(&[], false);
+        app.tabs[0].content = "foo = 1\nbar = foo\nbaz = foo\n".to_string();
+        app.tabs[0].syntax_name = "Python".to_string();
+        app.tabs[0].mark_content_edited();
+        app.tabs[0].set_cursor_line_col(1, 1);
+
+        // SelectNextOccurrence (Ctrl+D)
+        app.execute_command(EditorCommand::SelectNextOccurrence);
+        app.execute_command(EditorCommand::SelectNextOccurrence);
+        assert_eq!(app.tabs[0].selections.len(), 2);
+
+        // SelectAllOccurrences (Alt+F3)
+        app.execute_command(EditorCommand::SelectAllOccurrences);
+        assert_eq!(app.tabs[0].selections.len(), 3);
+
+        // ToggleComment (Ctrl+/)
+        app.execute_command(EditorCommand::ToggleComment);
+        assert!(app.tabs[0].content.starts_with("# "));
+
+        // Undo & Redo
+        app.execute_command(EditorCommand::Undo);
+        assert!(app.tabs[0].content.starts_with("foo = 1"));
+        app.execute_command(EditorCommand::Redo);
+        assert!(app.tabs[0].content.starts_with("# "));
+
+        // MoveLineDown & MoveLineUp
+        app.tabs[0].set_cursor_line_col(1, 1);
+        app.execute_command(EditorCommand::MoveLineDown);
+        assert_eq!(app.tabs[0].cursor_line, 2);
+        app.execute_command(EditorCommand::MoveLineUp);
+        assert_eq!(app.tabs[0].cursor_line, 1);
+
+        // SplitSelectionIntoLines & DeleteLine
+        app.execute_command(EditorCommand::SplitSelectionIntoLines);
+        app.execute_command(EditorCommand::DeleteLine);
+
+        // ToggleMinimap
+        assert!(app.show_minimap);
+        app.execute_command(EditorCommand::ToggleMinimap);
+        assert!(!app.show_minimap);
+    }
 }

@@ -924,5 +924,121 @@ mod tests {
         move_lines_vertical(&mut buf, &mut sel, &mut hist, false);
         assert_eq!(buf.line_text(0), "bb");
         assert_eq!(buf.line_text(1), "aa");
+        move_lines_vertical(&mut buf, &mut sel, &mut hist, true);
+        assert_eq!(buf.line_text(0), "aa");
+    }
+
+    #[test]
+    fn test_all_move_directions_and_smart_home() {
+        let buf = TextBuffer::from_str("    primeira linha\ncurta\n    terceira linha longa");
+        let mut sel = SelectionSet::single(Selection::caret(10));
+
+        // SmartHome vai primeiro para o início da indentação (col 5 -> char 4), depois para col 1 (char 0)
+        move_selections(&buf, &mut sel, MoveDirection::SmartHome, false);
+        assert_eq!(sel.primary().head, 4);
+        move_selections(&buf, &mut sel, MoveDirection::SmartHome, false);
+        assert_eq!(sel.primary().head, 0);
+
+        // LineEnd vai para o fim da linha 1 (char 18)
+        move_selections(&buf, &mut sel, MoveDirection::LineEnd, false);
+        assert_eq!(sel.primary().head, 18);
+
+        // Down e Down novamente preservam preferred_col (mesmo passando por "curta")
+        move_selections(&buf, &mut sel, MoveDirection::Down, false);
+        assert_eq!(buf.char_to_line_col(sel.primary().head), (2, 6));
+        move_selections(&buf, &mut sel, MoveDirection::Down, false);
+        assert_eq!(buf.char_to_line_col(sel.primary().head), (3, 19));
+
+        // Up volta para a linha 2
+        move_selections(&buf, &mut sel, MoveDirection::Up, false);
+        assert_eq!(buf.char_to_line_col(sel.primary().head).0, 2);
+
+        // WordLeft e WordRight
+        move_selections(&buf, &mut sel, MoveDirection::DocStart, false);
+        assert_eq!(sel.primary().head, 0);
+        move_selections(&buf, &mut sel, MoveDirection::WordRight, false);
+        assert_eq!(sel.primary().head, 12);
+        move_selections(&buf, &mut sel, MoveDirection::WordLeft, false);
+        assert_eq!(sel.primary().head, 4);
+
+        // Left / Right com e sem extend
+        move_selections(&buf, &mut sel, MoveDirection::Right, true);
+        assert_eq!(sel.primary(), Selection::new(4, 5));
+        move_selections(&buf, &mut sel, MoveDirection::Left, false);
+        assert_eq!(sel.primary(), Selection::caret(4));
+
+        // PageDown / PageUp / DocEnd
+        move_selections(&buf, &mut sel, MoveDirection::PageDown(10), false);
+        assert_eq!(buf.char_to_line_col(sel.primary().head).0, 3);
+        move_selections(&buf, &mut sel, MoveDirection::PageUp(10), false);
+        assert_eq!(buf.char_to_line_col(sel.primary().head).0, 1);
+        move_selections(&buf, &mut sel, MoveDirection::DocEnd, false);
+        assert_eq!(sel.primary().head, buf.len_chars());
+    }
+
+    #[test]
+    fn test_delete_backward_forward_and_auto_pair_wrap_and_skip() {
+        let mut buf = TextBuffer::from_str("hello world");
+        let mut sel = SelectionSet::single(Selection::new(0, 5)); // "hello"
+        let mut hist = EditHistory::new();
+
+        // Envolve a seleção "hello" com aspas `"` -> `"hello" world`
+        insert_text(&mut buf, &mut sel, &mut hist, "\"");
+        assert_eq!(buf.to_string_full(), "\"hello\" world");
+        assert_eq!(sel.primary(), Selection::new(1, 6));
+
+        // Coloca cursor antes do `"` de fechamento e digita `"` -> apenas avança por cima
+        sel.set_single(Selection::caret(6), buf.len_chars());
+        insert_text(&mut buf, &mut sel, &mut hist, "\"");
+        assert_eq!(sel.primary().head, 7);
+
+        // Insere `(` -> `()` e depois digita `)` -> pula por cima
+        insert_text(&mut buf, &mut sel, &mut hist, "(");
+        assert_eq!(buf.slice_to_string(7..9), "()");
+        assert_eq!(sel.primary().head, 8);
+        insert_text(&mut buf, &mut sel, &mut hist, ")");
+        assert_eq!(sel.primary().head, 9);
+
+        // Volta 1 char para ficar dentro de `()` e pressiona Backspace -> remove o par inteiro `()`!
+        sel.set_single(Selection::caret(8), buf.len_chars());
+        delete_backward(&mut buf, &mut sel, &mut hist, false);
+        assert_eq!(buf.to_string_full(), "\"hello\" world");
+
+        // Ctrl+Backspace (by_word) no fim do buffer apaga "world"
+        sel.set_single(Selection::caret(buf.len_chars()), buf.len_chars());
+        delete_backward(&mut buf, &mut sel, &mut hist, true);
+        assert_eq!(buf.to_string_full(), "\"hello\" ");
+
+        // Ctrl+Delete (by_word) no início apaga `"hello"`
+        sel.set_single(Selection::caret(0), buf.len_chars());
+        delete_forward(&mut buf, &mut sel, &mut hist, true);
+        delete_forward(&mut buf, &mut sel, &mut hist, false);
+    }
+
+    #[test]
+    fn test_vertical_cursors_delete_lines_and_multi_cursor_clipboard() {
+        let mut buf = TextBuffer::from_str("um\ndois\ntres");
+        let mut sel = SelectionSet::single(Selection::caret(0));
+        let mut hist = EditHistory::new();
+
+        // Adiciona cursores abaixo (Ctrl+Alt+Down)
+        add_cursor_vertical(&buf, &mut sel, false);
+        add_cursor_vertical(&buf, &mut sel, false);
+        assert_eq!(sel.len(), 3);
+
+        // Cola 3 linhas distribuindo 1 linha em cada cursor!
+        paste_text(&mut buf, &mut sel, &mut hist, "A-\nB-\nC-");
+        assert_eq!(buf.to_string_full(), "A-um\nB-dois\nC-tres");
+
+        // Copy com 1 cursor vazio copia a linha inteira com \n
+        sel.set_single(Selection::caret(0), buf.len_chars());
+        assert_eq!(copy_selections(&buf, &sel), "A-um\n");
+
+        // Delete line (Ctrl+Shift+K)
+        delete_current_lines(&mut buf, &mut sel, &mut hist);
+        assert_eq!(buf.to_string_full(), "B-dois\nC-tres");
+        delete_current_lines(&mut buf, &mut sel, &mut hist);
+        delete_current_lines(&mut buf, &mut sel, &mut hist);
+        assert_eq!(buf.to_string_full(), "");
     }
 }

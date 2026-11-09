@@ -242,15 +242,36 @@ mod tests {
         );
 
         assert!(!set.is_empty());
+        assert!(set.is_multi());
         assert_eq!(set.len(), 3);
         assert_eq!(set.as_slice()[0], Selection::new(2, 8));
         assert_eq!(set.as_slice()[1], Selection::new(10, 15));
         assert_eq!(set.as_slice()[2], Selection::caret(20));
 
+        // Backward selection merge preserves backward direction
+        let back_a = Selection::new(10, 4);
+        let back_b = Selection::new(6, 2);
+        assert!(back_a.overlaps_or_touches(&back_b));
+        assert_eq!(back_a.merge(&back_b), Selection::new(10, 2));
+
+        // Caret inside range overlaps
+        let caret_in = Selection::caret(5);
+        assert!(caret_in.overlaps_or_touches(&back_a));
+        assert!(back_a.overlaps_or_touches(&caret_in));
+
+        // Toggle caret off and on
         set.add_or_toggle_caret(20, 100);
         assert_eq!(set.len(), 2, "Clicar em cima de um cursor existente remove-o");
+        set.add_or_toggle_caret(30, 100);
+        assert_eq!(set.len(), 3);
 
         set.collapse_to_primary();
         assert_eq!(set.len(), 1);
+        assert!(!set.is_multi());
+
+        // Empty vec normalization fallback
+        let empty_norm = SelectionSet::from_vec(vec![], 0, 50);
+        assert_eq!(empty_norm.len(), 1);
+        assert_eq!(empty_norm.primary(), Selection::caret(0));
     }
 }

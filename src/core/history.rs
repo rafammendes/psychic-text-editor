@@ -138,6 +138,14 @@ mod tests {
         assert!(hist.redo(&mut buf, &mut sel));
         assert_eq!(buf.to_string_full(), "oi");
         assert_eq!(sel.primary().head, 2);
+        assert!(!hist.redo(&mut buf, &mut sel), "Redo stack vazio retorna false");
+
+        // Test eviction above MAX_HISTORY_ENTRIES
+        for i in 0..(MAX_HISTORY_ENTRIES + 5) {
+            hist.record(&buf, &sel, EditKind::Command, false);
+            buf.insert(buf.len_chars(), &format!("{}", i % 10));
+        }
+        assert!(hist.undo(&mut buf, &mut sel));
 
         hist.clear();
         assert!(!hist.undo(&mut buf, &mut sel));
