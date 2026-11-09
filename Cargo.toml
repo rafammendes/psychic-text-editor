@@ -12,6 +12,7 @@ eframe = { version = "0.31", default-features = false, features = [
     "x11",
 ] }
 egui = "0.31"
+ropey = "1.6"
 
 # Otimiza todas as bibliotecas (syntect, regex, egui) em nível máximo mesmo no `cargo run`
 [profile.dev]

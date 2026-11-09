@@ -1,3 +1,6 @@
+use crate::core::buffer::TextBuffer;
+use crate::core::history::EditHistory;
+use crate::core::selection::{Selection, SelectionSet};
 use crate::highlighter::detect_syntax_name;
 use crate::icons::file_icon_and_color;
 use egui::Color32;
@@ -11,11 +14,15 @@ pub struct DocumentTab {
     pub title: String,
     pub content: String,
     pub saved_content: String,
+    pub buffer: TextBuffer,
+    pub selections: SelectionSet,
+    pub history: EditHistory,
     pub syntax_name: String,
     pub cursor_line: usize,
     pub cursor_col: usize,
     pub selection_len: usize,
     pub pending_cursor_char: Option<(usize, usize)>,
+    pub scroll_to_primary: bool,
     pub line_ending: &'static str,
 
     // Ícone pré-computado para evitar alocações de String na barra de abas a 60 FPS
@@ -38,11 +45,15 @@ impl DocumentTab {
             title: format!("untitled-{}", index),
             content: String::new(),
             saved_content: String::new(),
+            buffer: TextBuffer::new(),
+            selections: SelectionSet::default(),
+            history: EditHistory::new(),
             syntax_name: "Plain Text".to_string(),
             cursor_line: 1,
             cursor_col: 1,
             selection_len: 0,
             pending_cursor_char: None,
+            scroll_to_primary: false,
             line_ending: "LF",
             icon,
             icon_color,
@@ -73,7 +84,8 @@ impl DocumentTab {
             .to_string();
         let (icon, icon_color) = file_icon_and_color(Some(&path));
 
-        let cached_line_count = normalized.bytes().filter(|&b| b == b'\n').count() + 1;
+        let buffer = TextBuffer::from_str(&normalized);
+        let cached_line_count = buffer.len_lines();
         let last_counted_len = normalized.len();
 
         Ok(Self {
@@ -82,11 +94,15 @@ impl DocumentTab {
             title,
             saved_content: normalized.clone(),
             content: normalized,
+            buffer,
+            selections: SelectionSet::default(),
+            history: EditHistory::new(),
             syntax_name,
             cursor_line: 1,
             cursor_col: 1,
             selection_len: 0,
             pending_cursor_char: None,
+            scroll_to_primary: false,
             line_ending,
             icon,
             icon_color,
@@ -97,12 +113,40 @@ impl DocumentTab {
         })
     }
 
-    /// Chamado quando o `TextEdit` reporta que o texto foi editado pelo usuário.
-    pub fn mark_content_edited(&mut self) {
-        self.cached_line_count = self.content.bytes().filter(|&b| b == b'\n').count() + 1;
+    /// Chamado quando `self.buffer` (`ropey::Rope`) é editado pelo widget customizado `CodeView`.
+    pub fn on_buffer_edited(&mut self) {
+        self.content = self.buffer.to_string_full();
+        self.cached_line_count = self.buffer.len_lines();
         self.last_counted_len = self.content.len();
         self.cached_dirty =
             self.content.len() != self.saved_content.len() || self.content != self.saved_content;
+        self.sync_cursor_from_selections();
+    }
+
+    /// Sincroniza `cursor_line`, `cursor_col` e `selection_len` a partir de `self.selections` em O(log n).
+    pub fn sync_cursor_from_selections(&mut self) {
+        let primary = self.selections.primary();
+        let (line, col) = self.buffer.char_to_line_col(primary.head);
+        self.cursor_line = line;
+        self.cursor_col = col;
+        self.selection_len = self
+            .selections
+            .as_slice()
+            .iter()
+            .map(Selection::len)
+            .sum();
+        self.last_cursor_char = primary.head;
+    }
+
+    /// Chamado quando `self.content` é modificado diretamente (ex: Replace All ou testes).
+    pub fn mark_content_edited(&mut self) {
+        self.buffer = TextBuffer::from_str(&self.content);
+        self.selections.normalize(self.buffer.len_chars());
+        self.cached_line_count = self.buffer.len_lines();
+        self.last_counted_len = self.content.len();
+        self.cached_dirty =
+            self.content.len() != self.saved_content.len() || self.content != self.saved_content;
+        self.sync_cursor_from_selections();
     }
 
     /// Retorna se o arquivo possui alterações não salvas em O(1) nos frames ociosos.
@@ -120,8 +164,8 @@ impl DocumentTab {
             .and_then(|n| n.to_str())
             .unwrap_or("arquivo")
             .to_string();
-        let first_line = self.content.lines().next().unwrap_or("");
-        self.syntax_name = detect_syntax_name(Some(&path), first_line);
+        let first_line = self.buffer.line_text(0);
+        self.syntax_name = detect_syntax_name(Some(&path), &first_line);
         let (icon, icon_color) = file_icon_and_color(Some(&path));
         self.icon = icon;
         self.icon_color = icon_color;
@@ -169,6 +213,7 @@ impl DocumentTab {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub fn line_count(&mut self) -> usize {
         if self.content.len() != self.last_counted_len {
             self.mark_content_edited();
@@ -186,20 +231,7 @@ impl DocumentTab {
             return;
         }
         self.last_cursor_char = char_index;
-
-        let mut line = 1usize;
-        let mut col = 1usize;
-        for (idx, ch) in self.content.chars().enumerate() {
-            if idx >= char_index {
-                break;
-            }
-            if ch == '\n' {
-                line += 1;
-                col = 1;
-            } else {
-                col += 1;
-            }
-        }
+        let (line, col) = self.buffer.char_to_line_col(char_index);
         self.cursor_line = line;
         self.cursor_col = col;
     }
@@ -213,34 +245,21 @@ impl DocumentTab {
         target_line_1based: usize,
         target_col_1based: usize,
     ) -> usize {
-        let target_line = target_line_1based.max(1);
-        let target_col = target_col_1based.max(1);
-
-        let mut current_line = 1usize;
-        let mut current_col = 1usize;
-
-        for (char_idx, ch) in self.content.chars().enumerate() {
-            if current_line == target_line && (current_col == target_col || ch == '\n') {
-                return char_idx;
-            }
-            if ch == '\n' {
-                if current_line == target_line {
-                    return char_idx;
-                }
-                current_line += 1;
-                current_col = 1;
-            } else {
-                current_col += 1;
-            }
+        if target_line_1based > self.buffer.len_lines() {
+            return self.buffer.len_chars();
         }
-        self.content.chars().count()
+        self.buffer
+            .line_col_to_char(target_line_1based.max(1), target_col_1based.max(1))
     }
 
     pub fn set_cursor_line_col(&mut self, line: usize, col: usize) {
         let clamped_line = line.clamp(1, self.cached_line_count.max(1));
         let char_pos = self.char_index_for_line_col(clamped_line, col.max(1));
+        self.selections
+            .set_single(Selection::caret(char_pos), self.buffer.len_chars());
         self.pending_cursor_char = Some((char_pos, char_pos));
-        self.update_cursor_stats(char_pos, 0);
+        self.scroll_to_primary = true;
+        self.sync_cursor_from_selections();
     }
 
     pub fn matches_path(&self, other: &Path) -> bool {
