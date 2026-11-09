@@ -1,0 +1,28 @@
+[package]
+name = "psychic-text-editor"
+version = "0.1.0"
+edition = "2024"
+description = "Fast, lightweight, native Rust text editor inspired by Sublime Text"
+license = "MIT"
+
+[dependencies]
+eframe = { version = "0.31", default-features = false, features = [
+    "default_fonts",
+    "glow",
+    "x11",
+] }
+egui = "0.31"
+
+# Otimiza todas as bibliotecas (syntect, regex, egui) em nível máximo mesmo no `cargo run`
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
+

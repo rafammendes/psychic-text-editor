@@ -1,0 +1,5 @@
+pub mod editor_view;
+pub mod palette_modal;
+pub mod search_bar;
+pub mod status_bar;
+pub mod top_bar;
