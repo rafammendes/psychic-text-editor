@@ -1,4 +1,5 @@
 mod app;
+mod core;
 mod highlighter;
 mod icons;
 mod palette;

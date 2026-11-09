@@ -1,6 +1,5 @@
 use egui::text::{LayoutJob, LayoutSection, TextFormat};
 use egui::{Color32, FontFamily, FontId, Galley};
-use std::fmt::Write as _;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -170,76 +169,57 @@ impl ThemePalette {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
-struct GalleyCacheKey {
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct LineCacheKey {
     text_hash: u64,
     text_len: usize,
     syntax_name: String,
     theme_name: String,
     font_size_bits: u32,
-    wrap_width_bits: u32,
 }
 
 #[derive(Clone, Default)]
-struct GalleyRingCache {
-    entries: Vec<(GalleyCacheKey, Arc<Galley>)>,
+struct LineGalleyCache {
+    map: std::collections::HashMap<LineCacheKey, Arc<Galley>>,
 }
 
-/// Retorna diretamente um `Arc<Galley>` em cache com zero alocações no caminho de cache-hit.
-pub fn layout_code_galley(
+/// Faz o layout e syntax highlight de uma única linha visível com cache O(1).
+pub fn layout_line_galley(
     ui: &egui::Ui,
-    text: &str,
+    line_text: &str,
     syntax_name: &str,
     theme_name: &str,
     font_size: f32,
-    wrap_width: f32,
 ) -> Arc<Galley> {
     use std::hash::{Hash, Hasher};
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    text.hash(&mut hasher);
-    let text_hash = hasher.finish();
-    let text_len = text.len();
-    let font_size_bits = font_size.to_bits();
-    let wrap_width_bits = wrap_width.to_bits();
-
-    let cache_id = egui::Id::new("psychic_galley_ring_cache");
-    if let Some(galley) = ui.ctx().data_mut(|d| {
-        let cache = d.get_temp_mut_or_default::<GalleyRingCache>(cache_id);
-        cache
-            .entries
-            .iter()
-            .find(|(k, _)| {
-                k.text_hash == text_hash
-                    && k.text_len == text_len
-                    && k.font_size_bits == font_size_bits
-                    && k.wrap_width_bits == wrap_width_bits
-                    && k.syntax_name == syntax_name
-                    && k.theme_name == theme_name
-            })
-            .map(|(_, g)| Arc::clone(g))
-    }) {
-        return galley;
-    }
-
-    let mut job = compute_fast_layout_job(text, syntax_name, theme_name, font_size);
-    job.wrap.max_width = wrap_width;
-    let galley = ui.fonts(|f| f.layout_job(job));
-
-    let key = GalleyCacheKey {
-        text_hash,
-        text_len,
+    line_text.hash(&mut hasher);
+    let key = LineCacheKey {
+        text_hash: hasher.finish(),
+        text_len: line_text.len(),
         syntax_name: syntax_name.to_string(),
         theme_name: theme_name.to_string(),
-        font_size_bits,
-        wrap_width_bits,
+        font_size_bits: font_size.to_bits(),
     };
 
+    let cache_id = egui::Id::new("psychic_line_galley_cache");
+    if let Some(cached) = ui.ctx().data_mut(|d| {
+        let cache = d.get_temp_mut_or_default::<LineGalleyCache>(cache_id);
+        cache.map.get(&key).cloned()
+    }) {
+        return cached;
+    }
+
+    let mut job = compute_fast_layout_job(line_text, syntax_name, theme_name, font_size);
+    job.wrap.max_width = f32::INFINITY;
+    let galley = ui.fonts(|f| f.layout_job(job));
+
     ui.ctx().data_mut(|d| {
-        let cache = d.get_temp_mut_or_default::<GalleyRingCache>(cache_id);
-        if cache.entries.len() >= 8 {
-            cache.entries.remove(0);
+        let cache = d.get_temp_mut_or_default::<LineGalleyCache>(cache_id);
+        if cache.map.len() >= 1024 {
+            cache.map.clear();
         }
-        cache.entries.push((key, Arc::clone(&galley)));
+        cache.map.insert(key, Arc::clone(&galley));
     });
 
     galley
@@ -764,61 +744,13 @@ fn is_type_name(word: &str) -> bool {
     first.is_ascii_uppercase() && word.bytes().any(|b| b.is_ascii_lowercase())
 }
 
-#[derive(Clone, Debug, PartialEq)]
-struct GutterCacheKey {
-    line_count: usize,
-    current_line: usize,
-    font_size_bits: u32,
-}
-
-#[derive(Clone, Default)]
-struct GutterRingCache {
-    entries: Vec<(GutterCacheKey, Arc<Galley>)>,
-}
-
-pub fn layout_gutter_galley(
-    ui: &egui::Ui,
-    line_count: usize,
-    current_line: usize,
-    font_size: f32,
-) -> Arc<Galley> {
-    let key = GutterCacheKey {
-        line_count,
-        current_line,
-        font_size_bits: font_size.to_bits(),
-    };
-
-    let cache_id = egui::Id::new("psychic_gutter_galley_cache");
-    if let Some(cached) = ui.ctx().data_mut(|d| {
-        let cache = d.get_temp_mut_or_default::<GutterRingCache>(cache_id);
-        cache
-            .entries
-            .iter()
-            .find(|(k, _)| k == &key)
-            .map(|(_, g)| Arc::clone(g))
-    }) {
-        return cached;
-    }
-
-    let job = build_gutter_layout_job(line_count, current_line, font_size);
-    let galley = ui.fonts(|f| f.layout_job(job));
-
-    ui.ctx().data_mut(|d| {
-        let cache = d.get_temp_mut_or_default::<GutterRingCache>(cache_id);
-        if cache.entries.len() >= 8 {
-            cache.entries.remove(0);
-        }
-        cache.entries.push((key, Arc::clone(&galley)));
-    });
-
-    galley
-}
-
+#[cfg(test)]
 pub fn build_gutter_layout_job(
     line_count: usize,
     current_line: usize,
     font_size: f32,
 ) -> LayoutJob {
+    use std::fmt::Write as _;
     let digits = line_count.to_string().len().max(3);
     let line_stride = digits + 4;
     let mut text = String::with_capacity(line_count * line_stride);

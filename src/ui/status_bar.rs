@@ -14,21 +14,27 @@ impl PsychicEditorApp {
             )
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    let (line, col, sel, line_ending, syntax_name, total_lines) = self
+                    let (line, col, sel, num_cursors, line_ending, syntax_name, total_lines) = self
                         .active_tab_ref()
                         .map(|t| {
                             (
                                 t.cursor_line,
                                 t.cursor_col,
                                 t.selection_len,
+                                t.selections.len(),
                                 t.line_ending,
                                 t.syntax_name.clone(),
                                 t.cached_lines(),
                             )
                         })
-                        .unwrap_or((1, 1, 0, "LF", "Plain Text".to_string(), 1));
+                        .unwrap_or((1, 1, 0, 1, "LF", "Plain Text".to_string(), 1));
 
-                    let pos_text = if sel > 0 {
+                    let pos_text = if num_cursors > 1 {
+                        format!(
+                            "{} cursors • Line {}, Column {} ({} chars) • {} lines",
+                            num_cursors, line, col, sel, total_lines
+                        )
+                    } else if sel > 0 {
                         format!(
                             "Line {}, Column {} ({} selected) • {} lines",
                             line, col, sel, total_lines

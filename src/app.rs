@@ -18,6 +18,7 @@ pub struct PsychicEditorApp {
     pub theme_name: String,
     pub font_size: f32,
     pub word_wrap: bool,
+    pub show_minimap: bool,
 
     // Search & Replace bar
     pub search_open: bool,
@@ -115,6 +116,7 @@ impl PsychicEditorApp {
             theme_name,
             font_size,
             word_wrap,
+            show_minimap: true,
             search_open: false,
             search_query: String::new(),
             replace_query: String::new(),
@@ -271,6 +273,102 @@ impl PsychicEditorApp {
             EditorCommand::DuplicateLine => {
                 self.duplicate_current_line();
             }
+            EditorCommand::DeleteLine => {
+                if let Some(tab) = self.tabs.get_mut(self.active_tab) {
+                    crate::core::actions::delete_current_lines(
+                        &mut tab.buffer,
+                        &mut tab.selections,
+                        &mut tab.history,
+                    );
+                    tab.on_buffer_edited();
+                    self.status_message = "Linha removida.".to_string();
+                }
+            }
+            EditorCommand::MoveLineUp => {
+                if let Some(tab) = self.tabs.get_mut(self.active_tab) {
+                    crate::core::actions::move_lines_vertical(
+                        &mut tab.buffer,
+                        &mut tab.selections,
+                        &mut tab.history,
+                        true,
+                    );
+                    tab.on_buffer_edited();
+                    self.status_message = "Linha movida para cima.".to_string();
+                }
+            }
+            EditorCommand::MoveLineDown => {
+                if let Some(tab) = self.tabs.get_mut(self.active_tab) {
+                    crate::core::actions::move_lines_vertical(
+                        &mut tab.buffer,
+                        &mut tab.selections,
+                        &mut tab.history,
+                        false,
+                    );
+                    tab.on_buffer_edited();
+                    self.status_message = "Linha movida para baixo.".to_string();
+                }
+            }
+            EditorCommand::ToggleComment => {
+                if let Some(tab) = self.tabs.get_mut(self.active_tab) {
+                    let syn = tab.syntax_name.clone();
+                    crate::core::actions::toggle_line_comment(
+                        &mut tab.buffer,
+                        &mut tab.selections,
+                        &mut tab.history,
+                        &syn,
+                    );
+                    tab.on_buffer_edited();
+                    self.status_message = "Comentário alternado.".to_string();
+                }
+            }
+            EditorCommand::SelectNextOccurrence => {
+                if let Some(tab) = self.tabs.get_mut(self.active_tab) {
+                    if crate::core::actions::select_next_occurrence(&tab.buffer, &mut tab.selections)
+                    {
+                        tab.sync_cursor_from_selections();
+                        tab.scroll_to_primary = true;
+                        self.status_message =
+                            format!("{} seleção(ões) ativa(s)", tab.selections.len());
+                    }
+                }
+            }
+            EditorCommand::SelectAllOccurrences => {
+                if let Some(tab) = self.tabs.get_mut(self.active_tab) {
+                    let count = crate::core::actions::select_all_occurrences(
+                        &tab.buffer,
+                        &mut tab.selections,
+                    );
+                    tab.sync_cursor_from_selections();
+                    self.status_message = format!("{} ocorrências selecionadas", count);
+                }
+            }
+            EditorCommand::SplitSelectionIntoLines => {
+                if let Some(tab) = self.tabs.get_mut(self.active_tab) {
+                    crate::core::actions::split_selection_into_lines(
+                        &tab.buffer,
+                        &mut tab.selections,
+                    );
+                    tab.sync_cursor_from_selections();
+                    self.status_message =
+                        format!("Dividido em {} cursores", tab.selections.len());
+                }
+            }
+            EditorCommand::Undo => {
+                if let Some(tab) = self.tabs.get_mut(self.active_tab) {
+                    if tab.history.undo(&mut tab.buffer, &mut tab.selections) {
+                        tab.on_buffer_edited();
+                        self.status_message = "Desfeito (Undo)".to_string();
+                    }
+                }
+            }
+            EditorCommand::Redo => {
+                if let Some(tab) = self.tabs.get_mut(self.active_tab) {
+                    if tab.history.redo(&mut tab.buffer, &mut tab.selections) {
+                        tab.on_buffer_edited();
+                        self.status_message = "Refeito (Redo)".to_string();
+                    }
+                }
+            }
             EditorCommand::ToggleLineEnding => {
                 if let Some(tab) = self.tabs.get_mut(self.active_tab) {
                     tab.line_ending = if tab.line_ending == "LF" { "CRLF" } else { "LF" };
@@ -280,6 +378,14 @@ impl PsychicEditorApp {
             EditorCommand::ToggleSidebar => {
                 self.sidebar_open = !self.sidebar_open;
                 self.save_session_state();
+            }
+            EditorCommand::ToggleMinimap => {
+                self.show_minimap = !self.show_minimap;
+                self.status_message = if self.show_minimap {
+                    "Minimapa: Visível".to_string()
+                } else {
+                    "Minimapa: Oculto".to_string()
+                };
             }
             EditorCommand::ToggleSearch => {
                 self.search_open = !self.search_open;
@@ -525,6 +631,7 @@ impl PsychicEditorApp {
         let ctrl_minus = KeyboardShortcut::new(Modifiers::CTRL, Key::Minus);
         let ctrl_zero = KeyboardShortcut::new(Modifiers::CTRL, Key::Num0);
         let alt_z = KeyboardShortcut::new(Modifiers::ALT, Key::Z);
+        let alt_m = KeyboardShortcut::new(Modifiers::ALT, Key::M);
 
         ctx.input_mut(|i| {
             if i.consume_shortcut(&ctrl_shift_p) {
@@ -539,7 +646,7 @@ impl PsychicEditorApp {
                 self.execute_command(EditorCommand::NewTab);
             } else if i.consume_shortcut(&ctrl_o) {
                 self.execute_command(EditorCommand::OpenFilePrompt);
-            } else if i.consume_shortcut(&ctrl_k) {
+            } else if i.consume_shortcut(&ctrl_k) && !i.modifiers.shift {
                 self.execute_command(EditorCommand::OpenFolderPrompt);
             } else if i.consume_shortcut(&ctrl_s) {
                 self.execute_command(EditorCommand::Save);
@@ -560,7 +667,11 @@ impl PsychicEditorApp {
                 self.execute_command(EditorCommand::FontSizeReset);
             } else if i.consume_shortcut(&alt_z) {
                 self.execute_command(EditorCommand::ToggleWordWrap);
-            } else if i.key_pressed(Key::Escape) {
+            } else if i.consume_shortcut(&alt_m) {
+                self.execute_command(EditorCommand::ToggleMinimap);
+            } else if (self.palette_mode != PaletteMode::Closed || self.search_open)
+                && i.key_pressed(Key::Escape)
+            {
                 if self.palette_mode != PaletteMode::Closed {
                     self.close_palette();
                 } else if self.search_open {
@@ -977,5 +1088,49 @@ mod tests {
             app.palette_query, "save",
             "Digitar após segurar seta para baixo deve ir direto para o input do Command Palette"
         );
+    }
+
+    #[test]
+    fn test_all_sublime_editor_commands_and_minimap_toggle() {
+        let mut app = PsychicEditorApp::from_args(&[], false);
+        app.tabs[0].content = "foo = 1\nbar = foo\nbaz = foo\n".to_string();
+        app.tabs[0].syntax_name = "Python".to_string();
+        app.tabs[0].mark_content_edited();
+        app.tabs[0].set_cursor_line_col(1, 1);
+
+        // SelectNextOccurrence (Ctrl+D)
+        app.execute_command(EditorCommand::SelectNextOccurrence);
+        app.execute_command(EditorCommand::SelectNextOccurrence);
+        assert_eq!(app.tabs[0].selections.len(), 2);
+
+        // SelectAllOccurrences (Alt+F3)
+        app.execute_command(EditorCommand::SelectAllOccurrences);
+        assert_eq!(app.tabs[0].selections.len(), 3);
+
+        // ToggleComment (Ctrl+/)
+        app.execute_command(EditorCommand::ToggleComment);
+        assert!(app.tabs[0].content.starts_with("# "));
+
+        // Undo & Redo
+        app.execute_command(EditorCommand::Undo);
+        assert!(app.tabs[0].content.starts_with("foo = 1"));
+        app.execute_command(EditorCommand::Redo);
+        assert!(app.tabs[0].content.starts_with("# "));
+
+        // MoveLineDown & MoveLineUp
+        app.tabs[0].set_cursor_line_col(1, 1);
+        app.execute_command(EditorCommand::MoveLineDown);
+        assert_eq!(app.tabs[0].cursor_line, 2);
+        app.execute_command(EditorCommand::MoveLineUp);
+        assert_eq!(app.tabs[0].cursor_line, 1);
+
+        // SplitSelectionIntoLines & DeleteLine
+        app.execute_command(EditorCommand::SplitSelectionIntoLines);
+        app.execute_command(EditorCommand::DeleteLine);
+
+        // ToggleMinimap
+        assert!(app.show_minimap);
+        app.execute_command(EditorCommand::ToggleMinimap);
+        assert!(!app.show_minimap);
     }
 }
