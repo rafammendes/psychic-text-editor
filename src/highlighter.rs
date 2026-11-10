@@ -250,6 +250,18 @@ pub fn color_marker_glyph(c: char) -> Option<(char, Color32)> {
         '🟫' => (square, Color32::from_rgb(160, 110, 80)),
         '⬜' => (square, Color32::from_rgb(236, 238, 242)),
         '⬛' => (square, Color32::from_rgb(105, 108, 116)),
+        // Emojis sem glifo nas fontes embutidas (apareceriam como quadrado "ausente"):
+        // substituídos por um símbolo geométrico equivalente, tingido.
+        '🧭' => ('\u{25CE}', Color32::from_rgb(88, 170, 255)), // ◎ bússola
+        '🏗' => ('\u{2692}', Color32::from_rgb(255, 176, 64)), // ⚒ construção
+        '🧪' => ('\u{25C7}', Color32::from_rgb(88, 204, 108)), // ◇ tubo de ensaio
+        '🧩' => ('\u{25C6}', Color32::from_rgb(170, 110, 235)), // ◆ peça de quebra-cabeça
+        '🧱' => ('\u{25A0}', Color32::from_rgb(210, 120, 90)), // ■ tijolos
+        '🧰' => ('\u{2692}', Color32::from_rgb(255, 176, 64)), // ⚒ caixa de ferramentas
+        '🧹' => ('\u{2731}', Color32::from_rgb(248, 208, 64)), // ✱ vassoura
+        '🧠' => ('\u{25C9}', Color32::from_rgb(240, 130, 180)), // ◉ cérebro
+        '🤖' => ('\u{25C8}', Color32::from_rgb(80, 210, 220)), // ◈ robô
+        '🗂' => ('\u{25A0}', Color32::from_rgb(88, 170, 255)), // ■ divisórias
         _ => return None,
     })
 }

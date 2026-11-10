@@ -97,4 +97,55 @@ mod tests {
         let elapsed = start.elapsed();
         assert!(elapsed.as_millis() < 250);
     }
+
+    fn ctx_with_fonts() -> egui::Context {
+        let ctx = egui::Context::default();
+        configure_fonts(&ctx);
+        let _ = ctx.run(egui::RawInput::default(), |_| {});
+        ctx
+    }
+
+    #[test]
+    fn test_every_non_ascii_symbol_in_docs_has_a_glyph_or_a_substitute() {
+        let ctx = ctx_with_fonts();
+        let mut missing = Vec::new();
+        for file in ["README.md", "docs/TODO.md", "docs/EDITOR_WIDGET.md"] {
+            let Ok(text) = std::fs::read_to_string(file) else {
+                continue;
+            };
+            for c in text.chars().filter(|c| !c.is_ascii()) {
+                if highlighter::color_marker_glyph(c).is_some()
+                    || highlighter::is_variation_selector(c)
+                {
+                    continue;
+                }
+                let ok = [egui::FontFamily::Monospace, egui::FontFamily::Proportional]
+                    .into_iter()
+                    .all(|fam| ctx.fonts(|f| f.has_glyph(&egui::FontId::new(14.0, fam), c)));
+                if !ok {
+                    missing.push(format!("U+{:04X} {}", c as u32, c));
+                }
+            }
+        }
+        missing.sort();
+        missing.dedup();
+        assert!(missing.is_empty(), "símbolos sem glifo: {:?}", missing);
+    }
+
+    #[test]
+    fn test_marker_substitute_glyphs_exist_in_fonts() {
+        let ctx = ctx_with_fonts();
+        let all = "🔴🟠🟡🟢🔵🟣🟤⚪⚫🟥🟧🟨🟩🟦🟪🟫⬜⬛🧭🏗🧪🧩🧱🧰🧹🧠🤖🗂";
+        for c in all.chars() {
+            let (glyph, _) = highlighter::color_marker_glyph(c).expect("mapeado");
+            for fam in [egui::FontFamily::Monospace, egui::FontFamily::Proportional] {
+                assert!(
+                    ctx.fonts(|f| f.has_glyph(&egui::FontId::new(14.0, fam), glyph)),
+                    "glifo substituto {} (de {}) ausente",
+                    glyph,
+                    c
+                );
+            }
+        }
+    }
 }
