@@ -1,4 +1,4 @@
-use crate::highlighter::compute_fast_layout_job;
+use crate::highlighter::{colorize_color_markers, compute_fast_layout_job, contains_color_marker};
 use egui::text::{LayoutJob, LayoutSection, TextFormat};
 use egui::{
     vec2, Align, Color32, CornerRadius, FontFamily, FontId, Id, Margin, RichText, Stroke, Ui,
@@ -454,12 +454,16 @@ fn render_heading(
     ui.add_space(10.0);
 
     let text_full: String = spans.iter().map(|s| s.text.as_str()).collect();
-    let label = RichText::new(text_full)
-        .size(base_font_size * scale)
-        .strong()
-        .color(color);
-
-    ui.label(label);
+    if contains_color_marker(&text_full) {
+        ui.label(marker_job(&text_full, base_font_size * scale, color, false, false));
+    } else {
+        ui.label(
+            RichText::new(text_full)
+                .size(base_font_size * scale)
+                .strong()
+                .color(color),
+        );
+    }
 
     if add_sep {
         ui.add_space(2.0);
@@ -541,7 +545,7 @@ fn render_spans_flow(
                 format: fmt,
             });
         }
-        ui.label(job);
+        ui.label(colorize_color_markers(job));
     } else {
         // Flow path: suporta links clicáveis e badges de código inline
         ui.horizontal_wrapped(|ui| {
@@ -568,6 +572,19 @@ fn render_spans_flow(
                                     .color(Color32::from_rgb(250, 205, 120)),
                             );
                         });
+                } else if contains_color_marker(&span.text) {
+                    let color = if span.bold {
+                        Color32::WHITE
+                    } else {
+                        Color32::from_rgb(220, 225, 235)
+                    };
+                    ui.label(marker_job(
+                        &span.text,
+                        font_size,
+                        color,
+                        span.italic || italic_override,
+                        span.strikethrough,
+                    ));
                 } else {
                     let mut rt = RichText::new(&span.text)
                         .size(font_size)
@@ -586,6 +603,29 @@ fn render_spans_flow(
             }
         });
     }
+}
+
+/// Monta um `LayoutJob` de uma única cor onde emojis de marcadores coloridos (🔴🟠🟡…)
+/// são desenhados como glifos geométricos tingidos.
+fn marker_job(text: &str, size: f32, color: Color32, italics: bool, strike: bool) -> LayoutJob {
+    let mut job = LayoutJob::default();
+    job.text = text.to_string();
+    job.sections.push(LayoutSection {
+        leading_space: 0.0,
+        byte_range: 0..text.len(),
+        format: TextFormat {
+            font_id: FontId::new(size, FontFamily::Proportional),
+            color,
+            italics,
+            strikethrough: if strike {
+                Stroke::new(1.0_f32, color)
+            } else {
+                Stroke::NONE
+            },
+            ..Default::default()
+        },
+    });
+    colorize_color_markers(job)
 }
 
 fn render_list_item(
@@ -694,11 +734,21 @@ fn render_table(
                     }
                     for row in rows {
                         for cell in row {
-                            ui.label(
-                                RichText::new(cell)
-                                    .size(font_size * 0.95)
-                                    .color(Color32::from_rgb(220, 225, 235)),
-                            );
+                            if contains_color_marker(cell) {
+                                ui.label(marker_job(
+                                    cell,
+                                    font_size * 0.95,
+                                    Color32::from_rgb(220, 225, 235),
+                                    false,
+                                    false,
+                                ));
+                            } else {
+                                ui.label(
+                                    RichText::new(cell)
+                                        .size(font_size * 0.95)
+                                        .color(Color32::from_rgb(220, 225, 235)),
+                                );
+                            }
                         }
                         ui.end_row();
                     }
@@ -739,6 +789,31 @@ mod tests {
         assert!(html.contains("<strong>negrito</strong>"));
         assert!(html.contains("<em>italico</em>"));
         assert!(html.contains("<code class=\"language-rust\">"));
+    }
+
+    #[test]
+    fn test_marker_job_replaces_emoji_with_colored_glyphs() {
+        let job = marker_job("🔴 P0 e 🟡 P2", 14.0, Color32::WHITE, false, false);
+        assert_eq!(job.text, "● P0 e ● P2");
+        let colored: Vec<Color32> = job
+            .sections
+            .iter()
+            .filter(|s| &job.text[s.byte_range.clone()] == "●")
+            .map(|s| s.format.color)
+            .collect();
+        assert_eq!(colored.len(), 2);
+        assert_ne!(colored[0], colored[1]);
+    }
+
+    #[test]
+    fn test_render_markdown_color_markers_everywhere() {
+        let ctx = egui::Context::default();
+        let markdown = "# 🔴 Título\n\n- 🟠 item **🟡 negrito** `x`\n\n| a |\n|---|\n| 🟢 |\n\n⚪ texto\n";
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let _ = render_markdown_preview(ui, 9, markdown, "base16-eighties.dark", 14.0, None);
+            });
+        });
     }
 
     #[test]

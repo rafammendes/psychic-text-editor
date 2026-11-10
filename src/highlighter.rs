@@ -225,7 +225,111 @@ pub fn layout_line_galley(
     galley
 }
 
+/// Mapeia emojis de "bolinhas/quadrados coloridos" para um glifo geométrico monocromático
+/// presente na fonte embutida e a cor correspondente. O `egui` não renderiza emojis coloridos
+/// (os glifos de fallback são monocromáticos ou ausentes), então os desenhamos tingidos.
+pub fn color_marker_glyph(c: char) -> Option<(char, Color32)> {
+    let circle = '\u{25CF}'; // ●
+    let square = '\u{25A0}'; // ■
+    Some(match c {
+        '🔴' => (circle, Color32::from_rgb(240, 80, 80)),
+        '🟠' => (circle, Color32::from_rgb(255, 152, 48)),
+        '🟡' => (circle, Color32::from_rgb(248, 208, 64)),
+        '🟢' => (circle, Color32::from_rgb(88, 204, 108)),
+        '🔵' => (circle, Color32::from_rgb(76, 148, 245)),
+        '🟣' => (circle, Color32::from_rgb(170, 110, 235)),
+        '🟤' => (circle, Color32::from_rgb(160, 110, 80)),
+        '⚪' => (circle, Color32::from_rgb(236, 238, 242)),
+        '⚫' => (circle, Color32::from_rgb(105, 108, 116)),
+        '🟥' => (square, Color32::from_rgb(240, 80, 80)),
+        '🟧' => (square, Color32::from_rgb(255, 152, 48)),
+        '🟨' => (square, Color32::from_rgb(248, 208, 64)),
+        '🟩' => (square, Color32::from_rgb(88, 204, 108)),
+        '🟦' => (square, Color32::from_rgb(76, 148, 245)),
+        '🟪' => (square, Color32::from_rgb(170, 110, 235)),
+        '🟫' => (square, Color32::from_rgb(160, 110, 80)),
+        '⬜' => (square, Color32::from_rgb(236, 238, 242)),
+        '⬛' => (square, Color32::from_rgb(105, 108, 116)),
+        _ => return None,
+    })
+}
+
+#[inline]
+pub fn contains_color_marker(text: &str) -> bool {
+    text.chars().any(|c| color_marker_glyph(c).is_some())
+}
+
+/// Substitui emojis de marcadores coloridos por glifos geométricos tingidos, preservando as
+/// demais seções (e a contagem de caracteres: 1 emoji → 1 glifo).
+pub fn colorize_color_markers(job: LayoutJob) -> LayoutJob {
+    if !contains_color_marker(&job.text) {
+        return job;
+    }
+    let mut out = job.clone();
+    out.text.clear();
+    out.sections.clear();
+    for section in &job.sections {
+        let slice = &job.text[section.byte_range.clone()];
+        let mut first = true;
+        let mut plain_start = out.text.len();
+        let push_plain = |out: &mut LayoutJob, start: usize, leading: f32| {
+            let end = out.text.len();
+            if end > start {
+                out.sections.push(LayoutSection {
+                    leading_space: leading,
+                    byte_range: start..end,
+                    format: section.format.clone(),
+                });
+            }
+        };
+        for c in slice.chars() {
+            if let Some((glyph, color)) = color_marker_glyph(c) {
+                push_plain(
+                    &mut out,
+                    plain_start,
+                    if first { section.leading_space } else { 0.0 },
+                );
+                first = false;
+                let start = out.text.len();
+                out.text.push(glyph);
+                let mut fmt = section.format.clone();
+                fmt.color = color;
+                fmt.italics = false;
+                fmt.font_id = FontId::new(fmt.font_id.size, FontFamily::Monospace);
+                out.sections.push(LayoutSection {
+                    leading_space: 0.0,
+                    byte_range: start..out.text.len(),
+                    format: fmt,
+                });
+                plain_start = out.text.len();
+            } else {
+                out.text.push(c);
+            }
+        }
+        push_plain(
+            &mut out,
+            plain_start,
+            if first { section.leading_space } else { 0.0 },
+        );
+    }
+    out
+}
+
 pub fn compute_fast_layout_job(
+    text: &str,
+    syntax_name: &str,
+    theme_name: &str,
+    font_size: f32,
+) -> LayoutJob {
+    colorize_color_markers(compute_fast_layout_job_raw(
+        text,
+        syntax_name,
+        theme_name,
+        font_size,
+    ))
+}
+
+fn compute_fast_layout_job_raw(
     text: &str,
     syntax_name: &str,
     theme_name: &str,
@@ -887,5 +991,23 @@ fn main() {
 
         let job_last = build_gutter_layout_job(500, 500, 14.5);
         assert_eq!(job_last.sections.len(), 2);
+    }
+
+    #[test]
+    fn test_color_markers_are_tinted_and_preserve_text_layout() {
+        let src = "- 🔴 P0 — crítico\n- 🟠 P1\n- ⚪ P3 `código`";
+        let job = compute_fast_layout_job(src, "Markdown", "base16-eighties.dark", 14.0);
+        assert_eq!(job.text.chars().count(), src.chars().count());
+        assert!(!contains_color_marker(&job.text));
+        let dots: Vec<_> = job
+            .sections
+            .iter()
+            .filter(|s| &job.text[s.byte_range.clone()] == "●")
+            .collect();
+        assert_eq!(dots.len(), 3);
+        assert_ne!(dots[0].format.color, dots[1].format.color);
+        // seções continuam cobrindo todo o texto, sem lacunas
+        let covered: usize = job.sections.iter().map(|s| s.byte_range.len()).sum();
+        assert_eq!(covered, job.text.len());
     }
 }
