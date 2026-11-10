@@ -256,7 +256,15 @@ pub fn color_marker_glyph(c: char) -> Option<(char, Color32)> {
 
 #[inline]
 pub fn contains_color_marker(text: &str) -> bool {
-    text.chars().any(|c| color_marker_glyph(c).is_some())
+    text.chars()
+        .any(|c| color_marker_glyph(c).is_some() || is_variation_selector(c))
+}
+
+/// Seletores de variação (ex.: U+FE0F de `🖥️`) não têm glifo na fonte e apareceriam como um
+/// quadrado de "caractere ausente"; outros editores os tratam como largura zero.
+#[inline]
+pub fn is_variation_selector(c: char) -> bool {
+    ('\u{FE00}'..='\u{FE0F}').contains(&c)
 }
 
 /// Substitui emojis de marcadores coloridos por glifos geométricos tingidos, preservando as
@@ -302,6 +310,9 @@ pub fn colorize_color_markers(job: LayoutJob) -> LayoutJob {
                     format: fmt,
                 });
                 plain_start = out.text.len();
+            } else if is_variation_selector(c) {
+                // Mantém 1 char → 1 char; U+200B é invisível e tem largura zero no egui.
+                out.text.push('\u{200B}');
             } else {
                 out.text.push(c);
             }
@@ -1007,6 +1018,16 @@ fn main() {
         assert_eq!(dots.len(), 3);
         assert_ne!(dots[0].format.color, dots[1].format.color);
         // seções continuam cobrindo todo o texto, sem lacunas
+        let covered: usize = job.sections.iter().map(|s| s.byte_range.len()).sum();
+        assert_eq!(covered, job.text.len());
+    }
+
+    #[test]
+    fn test_variation_selector_is_not_rendered_as_missing_glyph_box() {
+        let src = "## 🖥\u{FE0F} 4. Interface";
+        let job = compute_fast_layout_job(src, "Markdown", "base16-eighties.dark", 14.0);
+        assert!(!job.text.contains('\u{FE0F}'));
+        assert_eq!(job.text.chars().count(), src.chars().count());
         let covered: usize = job.sections.iter().map(|s| s.byte_range.len()).sum();
         assert_eq!(covered, job.text.len());
     }
