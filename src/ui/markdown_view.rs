@@ -798,4 +798,173 @@ The end.
             });
         });
     }
+
+    #[test]
+    fn test_render_all_headings_h1_to_h6() {
+        let ctx = egui::Context::default();
+        let markdown = r#"
+# Heading 1
+## Heading 2
+### Heading 3
+#### Heading 4
+##### Heading 5
+###### Heading 6
+"#;
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let out = render_markdown_preview(
+                    ui,
+                    2,
+                    markdown,
+                    "base16-eighties.dark",
+                    14.0,
+                    None,
+                );
+                assert_eq!(out.scroll_ratio, 0.0);
+            });
+        });
+    }
+
+    #[test]
+    fn test_render_markdown_tables_and_empty() {
+        let ctx = egui::Context::default();
+        let markdown = r#"
+| Coluna A | Coluna B | Coluna C |
+| :--- | :---: | ---: |
+| 10 | 20 | 30 |
+| alpha | beta | gamma |
+"#;
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let out = render_markdown_preview(
+                    ui,
+                    3,
+                    markdown,
+                    "base16-eighties.dark",
+                    14.0,
+                    None,
+                );
+                assert!(!out.copied_html);
+
+                // Testa render_table com tabela vazia diretamente
+                render_table(ui, &[], &[], 14.0);
+            });
+        });
+    }
+
+    #[test]
+    fn test_render_markdown_code_blocks_and_syntax() {
+        let ctx = egui::Context::default();
+        let markdown = r#"
+```rust
+pub fn foo() -> i32 { 100 }
+```
+
+```python
+def bar():
+    return 42
+```
+
+```toml
+[package]
+name = "psychic"
+```
+
+```json
+{"status": "ok"}
+```
+
+```
+código sem linguagem definida
+```
+"#;
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let out = render_markdown_preview(
+                    ui,
+                    4,
+                    markdown,
+                    "base16-eighties.dark",
+                    14.0,
+                    None,
+                );
+                assert!(!out.copied_html);
+            });
+        });
+    }
+
+    #[test]
+    fn test_render_markdown_nested_task_lists_and_blockquotes() {
+        let ctx = egui::Context::default();
+        let markdown = r#"
+> Citação com `código inline` e [link externo](https://example.com).
+> Segunda linha da citação.
+
+1. Primeiro ordenado
+2. Segundo ordenado com subitem:
+   - [x] Tarefa concluída
+   - [ ] Tarefa pendente
+   - Subitem com **negrito** e *itálico*
+"#;
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let out = render_markdown_preview(
+                    ui,
+                    5,
+                    markdown,
+                    "base16-eighties.dark",
+                    14.0,
+                    Some(0.5),
+                );
+                assert!(!out.copied_html);
+            });
+        });
+    }
+
+    #[test]
+    fn test_render_markdown_scroll_ratio_persistence() {
+        let ctx = egui::Context::default();
+        let mut lines = Vec::new();
+        for i in 1..=80 {
+            lines.push(format!("### Parágrafo de teste {}\n\nTexto longo que ocupa espaço vertical na tela para testar scroll.", i));
+        }
+        let markdown = lines.join("\n\n");
+
+        let mut input1 = egui::RawInput::default();
+        input1.screen_rect = Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 400.0)));
+
+        // Frame 1: calcula max_scroll e armazena em temp data
+        let _ = ctx.run(input1, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let out = render_markdown_preview(
+                    ui,
+                    6,
+                    &markdown,
+                    "base16-eighties.dark",
+                    14.0,
+                    Some(0.5),
+                );
+                assert!(!out.copied_html);
+            });
+        });
+
+        let mut input2 = egui::RawInput::default();
+        input2.screen_rect = Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 400.0)));
+
+        // Frame 2: agora com max_scroll conhecido, o target_scroll_ratio 0.5 deve ser aplicado
+        let _ = ctx.run(input2, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let out = render_markdown_preview(
+                    ui,
+                    6,
+                    &markdown,
+                    "base16-eighties.dark",
+                    14.0,
+                    Some(0.5),
+                );
+                assert!(out.max_scroll_y > 0.0);
+                assert!(out.scroll_y > 0.0);
+            });
+        });
+    }
 }

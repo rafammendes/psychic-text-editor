@@ -1257,4 +1257,30 @@ mod tests {
             app.render_editor_central(ctx);
         });
     }
+
+    #[test]
+    fn test_sidebar_and_central_panel_rendering_branches() {
+        let ctx = egui::Context::default();
+        let mut app = PsychicEditorApp::from_args(&["src/main.rs".to_string()], false);
+
+        // Sidebar fechada
+        app.sidebar_open = false;
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            app.render_sidebar(ctx);
+            app.render_editor_central(ctx);
+        });
+
+        // Sidebar aberta
+        app.sidebar_open = true;
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            app.render_sidebar(ctx);
+            app.render_editor_central(ctx);
+        });
+
+        // Editor com markdown desabilitado (modo full screen)
+        app.markdown_preview = false;
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            app.render_editor_central(ctx);
+        });
+    }
 }
