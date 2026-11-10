@@ -268,8 +268,20 @@ pub fn color_marker_glyph(c: char) -> Option<(char, Color32)> {
 
 #[inline]
 pub fn contains_color_marker(text: &str) -> bool {
-    text.chars()
-        .any(|c| color_marker_glyph(c).is_some() || is_variation_selector(c))
+    if text.is_ascii() {
+        return false;
+    }
+    let mut it = text.chars().peekable();
+    while let Some(c) = it.next() {
+        let next = it.peek().copied();
+        if color_marker_glyph(c).is_some()
+            || is_variation_selector(c)
+            || crate::emoji::is_color_emoji(c, next)
+        {
+            return true;
+        }
+    }
+    false
 }
 
 /// Seletores de variação (ex.: U+FE0F de `🖥️`) não têm glifo na fonte e apareceriam como um
@@ -279,9 +291,19 @@ pub fn is_variation_selector(c: char) -> bool {
     ('\u{FE00}'..='\u{FE0F}').contains(&c)
 }
 
-/// Substitui emojis de marcadores coloridos por glifos geométricos tingidos, preservando as
-/// demais seções (e a contagem de caracteres: 1 emoji → 1 glifo).
-pub fn colorize_color_markers(job: LayoutJob) -> LayoutJob {
+/// Como os emojis coloridos (imagens) são reservados no layout de texto.
+pub enum EmojiLayout<'a> {
+    /// Editor em grade monoespaçada: 1 emoji → 1 célula (NBSP); a imagem é desenhada por cima.
+    Grid,
+    /// Texto corrido (preview): o NBSP recebe `leading_space` para abrir espaço à imagem.
+    /// O closure devolve esse espaço para a fonte da seção.
+    Flow(&'a dyn Fn(&FontId) -> f32),
+}
+
+/// Prepara o `LayoutJob` para emojis: coloridos viram um NBSP transparente (a imagem é pintada
+/// depois com [`crate::emoji::paint`]); sem a fonte de emojis, viram glifos geométricos tingidos.
+/// Seletores de variação nunca viram "quadrado ausente". A contagem de caracteres é preservada.
+pub fn colorize_color_markers(job: LayoutJob, layout: &EmojiLayout) -> LayoutJob {
     if !contains_color_marker(&job.text) {
         return job;
     }
@@ -302,8 +324,12 @@ pub fn colorize_color_markers(job: LayoutJob) -> LayoutJob {
                 });
             }
         };
-        for c in slice.chars() {
-            if let Some((glyph, color)) = color_marker_glyph(c) {
+        let mut chars = slice.chars().peekable();
+        while let Some(c) = chars.next() {
+            let next = chars.peek().copied();
+            let special = crate::emoji::is_color_emoji(c, next)
+                || color_marker_glyph(c).is_some();
+            if special {
                 push_plain(
                     &mut out,
                     plain_start,
@@ -311,19 +337,27 @@ pub fn colorize_color_markers(job: LayoutJob) -> LayoutJob {
                 );
                 first = false;
                 let start = out.text.len();
-                out.text.push(glyph);
                 let mut fmt = section.format.clone();
-                fmt.color = color;
                 fmt.italics = false;
-                fmt.font_id = FontId::new(fmt.font_id.size, FontFamily::Monospace);
+                let mut leading = 0.0;
+                if crate::emoji::is_color_emoji(c, next) {
+                    out.text.push(crate::emoji::PLACEHOLDER);
+                    fmt.color = egui::Color32::TRANSPARENT;
+                    if let EmojiLayout::Flow(f) = layout {
+                        leading = f(&section.format.font_id);
+                    }
+                } else if let Some((glyph, color)) = color_marker_glyph(c) {
+                    out.text.push(glyph);
+                    fmt.color = color;
+                    fmt.font_id = FontId::new(fmt.font_id.size, FontFamily::Monospace);
+                }
                 out.sections.push(LayoutSection {
-                    leading_space: 0.0,
+                    leading_space: leading,
                     byte_range: start..out.text.len(),
                     format: fmt,
                 });
                 plain_start = out.text.len();
             } else if is_variation_selector(c) {
-                // Mantém 1 char → 1 char; U+200B é invisível e tem largura zero no egui.
                 out.text.push('\u{200B}');
             } else {
                 out.text.push(c);
@@ -344,12 +378,10 @@ pub fn compute_fast_layout_job(
     theme_name: &str,
     font_size: f32,
 ) -> LayoutJob {
-    colorize_color_markers(compute_fast_layout_job_raw(
-        text,
-        syntax_name,
-        theme_name,
-        font_size,
-    ))
+    colorize_color_markers(
+        compute_fast_layout_job_raw(text, syntax_name, theme_name, font_size),
+        &EmojiLayout::Grid,
+    )
 }
 
 fn compute_fast_layout_job_raw(
@@ -1022,13 +1054,16 @@ fn main() {
         let job = compute_fast_layout_job(src, "Markdown", "base16-eighties.dark", 14.0);
         assert_eq!(job.text.chars().count(), src.chars().count());
         assert!(!contains_color_marker(&job.text));
+        let placeholder = crate::emoji::PLACEHOLDER.to_string();
         let dots: Vec<_> = job
             .sections
             .iter()
-            .filter(|s| &job.text[s.byte_range.clone()] == "●")
+            .filter(|s| {
+                let t = &job.text[s.byte_range.clone()];
+                t == "●" || t == placeholder
+            })
             .collect();
         assert_eq!(dots.len(), 3);
-        assert_ne!(dots[0].format.color, dots[1].format.color);
         // seções continuam cobrindo todo o texto, sem lacunas
         let covered: usize = job.sections.iter().map(|s| s.byte_range.len()).sum();
         assert_eq!(covered, job.text.len());

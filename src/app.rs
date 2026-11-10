@@ -1283,4 +1283,21 @@ mod tests {
             app.render_editor_central(ctx);
         });
     }
+
+    #[test]
+    fn test_markdown_split_preview_with_todo_md_renders_color_emojis() {
+        let ctx = egui::Context::default();
+        let mut app = PsychicEditorApp::from_args(&["docs/TODO.md".to_string()], false);
+        assert!(app.markdown_preview);
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            app.render_top_bar(ctx);
+            app.render_editor_central(ctx);
+        });
+        if crate::emoji::is_available() {
+            assert!(crate::emoji::texture(&ctx, '🖥').is_some());
+            assert!(crate::emoji::texture(&ctx, '🟠').is_some());
+            assert!(crate::emoji::texture(&ctx, '🧭').is_some());
+            assert!(crate::emoji::texture(&ctx, '✅').is_some());
+        }
+    }
 }

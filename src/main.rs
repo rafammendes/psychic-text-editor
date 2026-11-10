@@ -1,5 +1,6 @@
 mod app;
 mod core;
+mod emoji;
 mod highlighter;
 mod icons;
 mod palette;
