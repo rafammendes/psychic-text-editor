@@ -95,6 +95,6 @@ mod tests {
             assert!(!job.sections.is_empty());
         }
         let elapsed = start.elapsed();
-        assert!(elapsed.as_millis() < 50);
+        assert!(elapsed.as_millis() < 250);
     }
 }

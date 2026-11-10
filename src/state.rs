@@ -314,4 +314,31 @@ mod tests {
         assert_eq!(active_idx, 0);
         assert_eq!(next_id, 5);
     }
+
+    #[test]
+    fn test_save_and_load_for_workspace() {
+        let temp_dir = env::temp_dir().join("psychic_workspace_session_test");
+        let _ = fs::remove_dir_all(&temp_dir);
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        let state = ProjectSessionState {
+            workspace_root: temp_dir.clone(),
+            theme_name: "base16-eighties.dark".to_string(),
+            font_size: 15.0,
+            ..Default::default()
+        };
+
+        let res = state.save_for_workspace();
+        assert!(res.is_ok());
+
+        let loaded = ProjectSessionState::load_for_workspace(&temp_dir);
+        assert!(loaded.is_some());
+        let loaded = loaded.unwrap();
+        assert_eq!(loaded.font_size, 15.0);
+        assert_eq!(loaded.theme_name, "base16-eighties.dark");
+
+        let session_file = ProjectSessionState::state_file_for_workspace(&temp_dir);
+        let _ = fs::remove_file(session_file);
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
 }
