@@ -19,6 +19,8 @@ pub struct PsychicEditorApp {
     pub font_size: f32,
     pub word_wrap: bool,
     pub show_minimap: bool,
+    pub markdown_preview: bool,
+    pub pending_clipboard_text: Option<String>,
 
     // Search & Replace bar
     pub search_open: bool,
@@ -117,6 +119,8 @@ impl PsychicEditorApp {
             font_size,
             word_wrap,
             show_minimap: true,
+            markdown_preview: true,
+            pending_clipboard_text: None,
             search_open: false,
             search_query: String::new(),
             replace_query: String::new(),
@@ -387,6 +391,22 @@ impl PsychicEditorApp {
                     "Minimapa: Oculto".to_string()
                 };
             }
+            EditorCommand::ToggleMarkdownPreview => {
+                self.markdown_preview = !self.markdown_preview;
+                self.status_message = if self.markdown_preview {
+                    "Markdown Preview: Ativado".to_string()
+                } else {
+                    "Markdown Preview: Desativado".to_string()
+                };
+            }
+            EditorCommand::CopyMarkdownHtml => {
+                if let Some(tab) = self.active_tab_ref() {
+                    let html = crate::ui::markdown_view::markdown_to_html(&tab.content);
+                    self.pending_clipboard_text = Some(html);
+                    self.status_message =
+                        "HTML do Markdown copiado para a área de transferência!".to_string();
+                }
+            }
             EditorCommand::ToggleSearch => {
                 self.search_open = !self.search_open;
                 if self.search_open {
@@ -617,6 +637,7 @@ impl PsychicEditorApp {
         let ctrl_shift_p = KeyboardShortcut::new(Modifiers::CTRL | Modifiers::SHIFT, Key::P);
         let ctrl_shift_s = KeyboardShortcut::new(Modifiers::CTRL | Modifiers::SHIFT, Key::S);
         let ctrl_shift_d = KeyboardShortcut::new(Modifiers::CTRL | Modifiers::SHIFT, Key::D);
+        let ctrl_shift_m = KeyboardShortcut::new(Modifiers::CTRL | Modifiers::SHIFT, Key::M);
         let ctrl_p = KeyboardShortcut::new(Modifiers::CTRL, Key::P);
         let ctrl_n = KeyboardShortcut::new(Modifiers::CTRL, Key::N);
         let ctrl_o = KeyboardShortcut::new(Modifiers::CTRL, Key::O);
@@ -640,6 +661,8 @@ impl PsychicEditorApp {
                 self.execute_command(EditorCommand::SaveAs);
             } else if i.consume_shortcut(&ctrl_shift_d) {
                 self.execute_command(EditorCommand::DuplicateLine);
+            } else if i.consume_shortcut(&ctrl_shift_m) {
+                self.execute_command(EditorCommand::ToggleMarkdownPreview);
             } else if i.consume_shortcut(&ctrl_p) {
                 self.open_palette(PaletteMode::QuickOpen, String::new());
             } else if i.consume_shortcut(&ctrl_n) {
@@ -684,6 +707,9 @@ impl PsychicEditorApp {
 
 impl eframe::App for PsychicEditorApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if let Some(text) = self.pending_clipboard_text.take() {
+            ctx.copy_text(text);
+        }
         self.handle_shortcuts(ctx);
         self.render_top_bar(ctx);
         self.render_status_bar(ctx);
@@ -1132,5 +1158,51 @@ mod tests {
         assert!(app.show_minimap);
         app.execute_command(EditorCommand::ToggleMinimap);
         assert!(!app.show_minimap);
+
+        // ToggleMarkdownPreview & CopyMarkdownHtml
+        assert!(app.markdown_preview);
+        app.execute_command(EditorCommand::ToggleMarkdownPreview);
+        assert!(!app.markdown_preview);
+        app.execute_command(EditorCommand::ToggleMarkdownPreview);
+        assert!(app.markdown_preview);
+
+        app.tabs[0].content = "# Markdown Test\n\n**Texto**".to_string();
+        app.execute_command(EditorCommand::CopyMarkdownHtml);
+        assert!(app.pending_clipboard_text.is_some());
+        assert!(app
+            .pending_clipboard_text
+            .as_ref()
+            .unwrap()
+            .contains("<h1>Markdown Test</h1>"));
+    }
+
+    #[test]
+    fn test_markdown_split_preview_rendering() {
+        let ctx = egui::Context::default();
+        let mut app = PsychicEditorApp::from_args(&["README.md".to_string()], false);
+        app.tabs[0].content = "# Psychic Text Editor\n\n- Leve\n- Rapido\n\n```rust\nfn main() {}\n```".to_string();
+        app.tabs[0].syntax_name = "Markdown".to_string();
+        app.tabs[0].mark_content_edited();
+        assert!(app.markdown_preview);
+
+        // Renderiza no modo split (Editor + Preview nativo)
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            app.render_top_bar(ctx);
+            app.render_editor_central(ctx);
+        });
+
+        // Alterna via atalho Ctrl+Shift+M
+        let mut input = egui::RawInput::default();
+        input.events.push(egui::Event::Key {
+            key: Key::M,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::CTRL | Modifiers::SHIFT,
+        });
+        let _ = ctx.run(input, |ctx| {
+            app.handle_shortcuts(ctx);
+        });
+        assert!(!app.markdown_preview);
     }
 }
