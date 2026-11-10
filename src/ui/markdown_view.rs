@@ -1,4 +1,6 @@
-use crate::highlighter::compute_fast_layout_job;
+use crate::highlighter::{
+    colorize_color_markers, compute_fast_layout_job, contains_color_marker, EmojiLayout,
+};
 use egui::text::{LayoutJob, LayoutSection, TextFormat};
 use egui::{
     vec2, Align, Color32, CornerRadius, FontFamily, FontId, Id, Margin, RichText, Stroke, Ui,
@@ -454,12 +456,19 @@ fn render_heading(
     ui.add_space(10.0);
 
     let text_full: String = spans.iter().map(|s| s.text.as_str()).collect();
-    let label = RichText::new(text_full)
-        .size(base_font_size * scale)
-        .strong()
-        .color(color);
-
-    ui.label(label);
+    if contains_color_marker(&text_full) {
+        show_job(
+            ui,
+            marker_job(&text_full, base_font_size * scale, color, false, false),
+        );
+    } else {
+        ui.label(
+            RichText::new(text_full)
+                .size(base_font_size * scale)
+                .strong()
+                .color(color),
+        );
+    }
 
     if add_sep {
         ui.add_space(2.0);
@@ -541,7 +550,7 @@ fn render_spans_flow(
                 format: fmt,
             });
         }
-        ui.label(job);
+        show_job(ui, job);
     } else {
         // Flow path: suporta links clicáveis e badges de código inline
         ui.horizontal_wrapped(|ui| {
@@ -568,6 +577,22 @@ fn render_spans_flow(
                                     .color(Color32::from_rgb(250, 205, 120)),
                             );
                         });
+                } else if contains_color_marker(&span.text) {
+                    let color = if span.bold {
+                        Color32::WHITE
+                    } else {
+                        Color32::from_rgb(220, 225, 235)
+                    };
+                    show_job(
+                        ui,
+                        marker_job(
+                        &span.text,
+                        font_size,
+                        color,
+                        span.italic || italic_override,
+                        span.strikethrough,
+                    ),
+                    );
                 } else {
                     let mut rt = RichText::new(&span.text)
                         .size(font_size)
@@ -586,6 +611,53 @@ fn render_spans_flow(
             }
         });
     }
+}
+
+/// Monta um `LayoutJob` de uma única cor onde emojis de marcadores coloridos (🔴🟠🟡…)
+/// são desenhados como glifos geométricos tingidos.
+fn marker_job(text: &str, size: f32, color: Color32, italics: bool, strike: bool) -> LayoutJob {
+    let mut job = LayoutJob::default();
+    job.text = text.to_string();
+    job.sections.push(LayoutSection {
+        leading_space: 0.0,
+        byte_range: 0..text.len(),
+        format: TextFormat {
+            font_id: FontId::new(size, FontFamily::Proportional),
+            color,
+            italics,
+            strikethrough: if strike {
+                Stroke::new(1.0_f32, color)
+            } else {
+                Stroke::NONE
+            },
+            ..Default::default()
+        },
+    });
+    job
+}
+
+/// Mostra um `LayoutJob` no preview, desenhando emojis coloridos (imagens) quando houver.
+fn show_job(ui: &mut Ui, job: LayoutJob) {
+    let emojis: Vec<char> = crate::emoji::color_emoji_positions(&job.text)
+        .into_iter()
+        .map(|(_, c)| c)
+        .collect();
+    let measure = |f: &FontId| {
+        let w = ui.fonts(|fo| fo.glyph_width(f, crate::emoji::PLACEHOLDER));
+        (f.size * crate::emoji::EMOJI_SCALE - w).max(0.0)
+    };
+    let job = colorize_color_markers(job, &EmojiLayout::Flow(&measure));
+    if emojis.is_empty() {
+        ui.label(job);
+        return;
+    }
+    let (pos, galley, _resp) = egui::Label::new(job).layout_in_ui(ui);
+    ui.painter().add(egui::epaint::TextShape::new(
+        pos,
+        galley.clone(),
+        ui.visuals().text_color(),
+    ));
+    crate::emoji::paint_galley_emojis(ui.painter(), ui.ctx(), pos, &galley, &emojis, false);
 }
 
 fn render_list_item(
@@ -656,7 +728,28 @@ fn render_code_block(
             // Conteúdo do código com Syntax Highlighting nativo do Psychic!
             let syntax_name = detect_syntax_from_lang(lang);
             let job = compute_fast_layout_job(code, syntax_name, theme_name, font_size * 0.92);
-            ui.label(job);
+            let emojis: Vec<char> = crate::emoji::color_emoji_positions(code)
+                .into_iter()
+                .map(|(_, c)| c)
+                .collect();
+            if emojis.is_empty() {
+                ui.label(job);
+            } else {
+                let (pos, galley, _resp) = egui::Label::new(job).layout_in_ui(ui);
+                ui.painter().add(egui::epaint::TextShape::new(
+                    pos,
+                    galley.clone(),
+                    ui.visuals().text_color(),
+                ));
+                crate::emoji::paint_galley_emojis(
+                    ui.painter(),
+                    ui.ctx(),
+                    pos,
+                    &galley,
+                    &emojis,
+                    true,
+                );
+            }
         });
     ui.add_space(8.0);
 }
@@ -683,22 +776,48 @@ fn render_table(
                 .show(ui, |ui| {
                     if !headers.is_empty() {
                         for h in headers {
-                            ui.label(
-                                RichText::new(h)
-                                    .size(font_size)
-                                    .strong()
-                                    .color(Color32::from_rgb(255, 175, 80)),
-                            );
+                            if contains_color_marker(h) {
+                                show_job(
+                                    ui,
+                                    marker_job(
+                                        h,
+                                        font_size,
+                                        Color32::from_rgb(255, 175, 80),
+                                        false,
+                                        false,
+                                    ),
+                                );
+                            } else {
+                                ui.label(
+                                    RichText::new(h)
+                                        .size(font_size)
+                                        .strong()
+                                        .color(Color32::from_rgb(255, 175, 80)),
+                                );
+                            }
                         }
                         ui.end_row();
                     }
                     for row in rows {
                         for cell in row {
-                            ui.label(
-                                RichText::new(cell)
-                                    .size(font_size * 0.95)
-                                    .color(Color32::from_rgb(220, 225, 235)),
-                            );
+                            if contains_color_marker(cell) {
+                                show_job(
+                                    ui,
+                                    marker_job(
+                                    cell,
+                                    font_size * 0.95,
+                                    Color32::from_rgb(220, 225, 235),
+                                    false,
+                                    false,
+                                ),
+                                );
+                            } else {
+                                ui.label(
+                                    RichText::new(cell)
+                                        .size(font_size * 0.95)
+                                        .color(Color32::from_rgb(220, 225, 235)),
+                                );
+                            }
                         }
                         ui.end_row();
                     }
@@ -739,6 +858,25 @@ mod tests {
         assert!(html.contains("<strong>negrito</strong>"));
         assert!(html.contains("<em>italico</em>"));
         assert!(html.contains("<code class=\"language-rust\">"));
+    }
+
+    #[test]
+    fn test_marker_job_replaces_emoji_with_colored_glyphs() {
+        let job = marker_job("🔴 P0 e 🟡 P2", 14.0, Color32::WHITE, false, false);
+        assert!(job.text.contains("🔴 P0 e 🟡 P2"));
+        let processed = colorize_color_markers(job, &EmojiLayout::Grid);
+        assert_eq!(processed.text.chars().count(), "🔴 P0 e 🟡 P2".chars().count());
+    }
+
+    #[test]
+    fn test_render_markdown_color_markers_everywhere() {
+        let ctx = egui::Context::default();
+        let markdown = "# 🔴 Título\n\n- 🟠 item **🟡 negrito** `x`\n\n| a |\n|---|\n| 🟢 |\n\n⚪ texto\n";
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let _ = render_markdown_preview(ui, 9, markdown, "base16-eighties.dark", 14.0, None);
+            });
+        });
     }
 
     #[test]

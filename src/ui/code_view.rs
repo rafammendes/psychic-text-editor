@@ -1005,7 +1005,24 @@ impl<'a> CodeView<'a> {
                     self.font_size,
                 );
                 let text_y = line_y + ((line_height - galley.size().y) * 0.5).max(0.0);
-                painter.galley(pos2(code_origin_x, text_y), galley, Color32::WHITE);
+                painter.galley(pos2(code_origin_x, text_y), galley.clone(), Color32::WHITE);
+
+                if crate::emoji::is_available() {
+                    let emojis: Vec<char> = crate::emoji::color_emoji_positions(&line_str)
+                        .into_iter()
+                        .map(|(_, c)| c)
+                        .collect();
+                    if !emojis.is_empty() {
+                        crate::emoji::paint_galley_emojis(
+                            &painter,
+                            ui.ctx(),
+                            pos2(code_origin_x, text_y),
+                            &galley,
+                            &emojis,
+                            true,
+                        );
+                    }
+                }
             }
         }
 
