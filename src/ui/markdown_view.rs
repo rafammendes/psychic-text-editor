@@ -1,7 +1,7 @@
 use crate::highlighter::compute_fast_layout_job;
 use egui::text::{LayoutJob, LayoutSection, TextFormat};
 use egui::{
-    vec2, Align, Color32, CornerRadius, FontFamily, FontId, Margin, RichText, Stroke, Ui,
+    vec2, Align, Color32, CornerRadius, FontFamily, FontId, Id, Margin, RichText, Stroke, Ui,
 };
 use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 
@@ -78,16 +78,26 @@ impl InlineCollector {
 
 pub struct MarkdownPreviewOutput {
     pub copied_html: bool,
+    pub scroll_y: f32,
+    pub max_scroll_y: f32,
+    pub scroll_ratio: f32,
 }
 
 /// Renderiza o documento Markdown em tempo real como widgets nativos no `egui`
 pub fn render_markdown_preview(
     ui: &mut Ui,
+    tab_id: u64,
     markdown_text: &str,
     theme_name: &str,
     font_size: f32,
+    target_scroll_ratio: Option<f32>,
 ) -> MarkdownPreviewOutput {
-    let mut output = MarkdownPreviewOutput { copied_html: false };
+    let mut output = MarkdownPreviewOutput {
+        copied_html: false,
+        scroll_y: 0.0,
+        max_scroll_y: 0.0,
+        scroll_ratio: 0.0,
+    };
 
     let mut options = Options::empty();
     options.insert(Options::ENABLE_TABLES);
@@ -119,11 +129,22 @@ pub fn render_markdown_preview(
     ui.add_space(4.0);
     ui.separator();
 
+    let max_scroll_id = Id::new(("markdown_max_scroll", tab_id));
+    let prev_max_scroll = ui
+        .ctx()
+        .data(|d| d.get_temp::<f32>(max_scroll_id))
+        .unwrap_or(0.0);
+
     // Área rolável do documento com margem de leitura
-    egui::ScrollArea::vertical()
-        .id_salt("markdown_preview_scroll")
-        .auto_shrink([false, false])
-        .show(ui, |ui| {
+    let mut scroll_area = egui::ScrollArea::vertical()
+        .id_salt(("markdown_preview_scroll", tab_id))
+        .auto_shrink([false, false]);
+
+    if let Some(target_ratio) = target_scroll_ratio {
+        scroll_area = scroll_area.vertical_scroll_offset(target_ratio * prev_max_scroll);
+    }
+
+    let scroll_out = scroll_area.show(ui, |ui| {
             egui::Frame::NONE
                 .fill(Color32::from_rgb(32, 35, 43))
                 .inner_margin(Margin::symmetric(20, 16))
@@ -362,6 +383,30 @@ pub fn render_markdown_preview(
                     }
                 });
         });
+
+    let content_height = scroll_out.content_size.y;
+    let viewport_height = scroll_out.inner_rect.height();
+    let current_max_scroll = (content_height - viewport_height).max(0.0);
+    let scroll_y = scroll_out.state.offset.y;
+    let scroll_ratio = if current_max_scroll > 0.0 {
+        (scroll_y / current_max_scroll).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+
+    ui.ctx()
+        .data_mut(|d| d.insert_temp(max_scroll_id, current_max_scroll));
+
+    if prev_max_scroll == 0.0
+        && current_max_scroll > 0.0
+        && target_scroll_ratio.is_some_and(|r| r > 0.0)
+    {
+        ui.ctx().request_repaint();
+    }
+
+    output.scroll_y = scroll_y;
+    output.max_scroll_y = current_max_scroll;
+    output.scroll_ratio = scroll_ratio;
 
     output
 }
@@ -740,8 +785,16 @@ The end.
 "#;
         let _ = ctx.run(egui::RawInput::default(), |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
-                let out = render_markdown_preview(ui, markdown, "base16-eighties.dark", 14.0);
+                let out = render_markdown_preview(
+                    ui,
+                    1,
+                    markdown,
+                    "base16-eighties.dark",
+                    14.0,
+                    Some(0.0),
+                );
                 assert!(!out.copied_html);
+                assert!(out.scroll_ratio >= 0.0 && out.scroll_ratio <= 1.0);
             });
         });
     }

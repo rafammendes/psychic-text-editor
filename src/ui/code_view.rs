@@ -16,6 +16,9 @@ pub struct CodeViewOutput {
     pub text_changed: bool,
     pub cursor_changed: bool,
     pub status_hint: Option<String>,
+    pub scroll_y: f32,
+    pub max_scroll_y: f32,
+    pub scroll_ratio: f32,
 }
 
 #[derive(Clone, Default)]
@@ -48,6 +51,9 @@ impl<'a> CodeView<'a> {
             text_changed: false,
             cursor_changed: false,
             status_hint: None,
+            scroll_y: 0.0,
+            max_scroll_y: 0.0,
+            scroll_ratio: 0.0,
         };
 
         let editor_id = Id::new(("psychic_custom_code_view", self.tab.id));
@@ -159,6 +165,11 @@ impl<'a> CodeView<'a> {
                         .data_mut(|d| d.remove_temp::<f32>(Id::new(("minimap_scroll_y", self.tab.id))))
                     {
                         scroll_area = scroll_area.vertical_scroll_offset(y);
+                    } else if let Some(y) = ui
+                        .ctx()
+                        .data_mut(|d| d.remove_temp::<f32>(Id::new(("sync_code_scroll_y", self.tab.id))))
+                    {
+                        scroll_area = scroll_area.vertical_scroll_offset(y);
                     }
 
                     let scroll_out = scroll_area.show_viewport(ui, |ui, viewport| {
@@ -255,11 +266,21 @@ impl<'a> CodeView<'a> {
                             &temp_state,
                         );
 
-                        (first_line, last_line, virtual_height)
+                        (first_line, last_line, virtual_height, viewport.height())
                     });
 
-                    let (first_line, last_line, virtual_height) = scroll_out.inner;
+                    let (first_line, last_line, virtual_height, viewport_height) = scroll_out.inner;
                     let scroll_y = scroll_out.state.offset.y;
+                    let max_scroll_y = (virtual_height - viewport_height).max(0.0);
+                    let scroll_ratio = if max_scroll_y > 0.0 {
+                        (scroll_y / max_scroll_y).clamp(0.0, 1.0)
+                    } else {
+                        0.0
+                    };
+
+                    output.scroll_y = scroll_y;
+                    output.max_scroll_y = max_scroll_y;
+                    output.scroll_ratio = scroll_ratio;
 
                     // Salva métricas da viewport para o minimapa
                     ui.ctx().data_mut(|d| {

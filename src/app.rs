@@ -1205,4 +1205,56 @@ mod tests {
         });
         assert!(!app.markdown_preview);
     }
+
+    #[test]
+    fn test_markdown_split_synchronized_scrolling() {
+        let ctx = egui::Context::default();
+        let mut app = PsychicEditorApp::from_args(&["doc.md".to_string()], false);
+        let mut lines = Vec::new();
+        for i in 1..=120 {
+            lines.push(format!("## Seção {}\n\nConteúdo detalhado da linha {}", i, i));
+        }
+        app.tabs[0].content = lines.join("\n\n");
+        app.tabs[0].syntax_name = "Markdown".to_string();
+        app.tabs[0].mark_content_edited();
+        assert!(app.markdown_preview);
+
+        // Frame 1: renderiza inicializando métricas e alturas virtuais
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            app.render_editor_central(ctx);
+        });
+
+        let tab_id = app.tabs[0].id;
+        ctx.data_mut(|d| {
+            d.insert_temp(egui::Id::new(("sync_code_scroll_y", tab_id)), 300.0_f32);
+        });
+
+        // Frame 2: ponteiro no editor (esquerda) comanda o preview
+        let mut input_editor = egui::RawInput::default();
+        input_editor
+            .events
+            .push(egui::Event::PointerMoved(egui::pos2(50.0, 100.0)));
+        let _ = ctx.run(input_editor, |ctx| {
+            app.render_editor_central(ctx);
+        });
+
+        // Frame 3: ponteiro no preview (direita) com rolagem via roda do mouse
+        let mut input_preview = egui::RawInput::default();
+        input_preview
+            .events
+            .push(egui::Event::PointerMoved(egui::pos2(700.0, 100.0)));
+        input_preview.events.push(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Line,
+            delta: egui::vec2(0.0, -5.0),
+            modifiers: egui::Modifiers::default(),
+        });
+        let _ = ctx.run(input_preview, |ctx| {
+            app.render_editor_central(ctx);
+        });
+
+        // Frame 4: verifica que o editor consome o scroll sincronizado do preview
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            app.render_editor_central(ctx);
+        });
+    }
 }

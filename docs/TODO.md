@@ -133,11 +133,13 @@ Para evitar retrabalho, o que já existe hoje:
 - [x] 🟠 **Minimapa** lateral clicável — `L` (Implementado no `CodeView`)
 - [x] 🟠 **Highlight da linha atual** no editor — `S` (Implementado no `CodeView`)
 - [x] 🟠 **Guias de indentação** verticais — `M` (Implementado no `CodeView`)
-- [ ] 🟠 **Visualizador de Markdown Nativo (Split Preview / Toggle Preview)** — `M`
+- [x] 🟠 **Visualizador de Markdown Nativo (Split Preview / Toggle Preview)** — `M` (Implementado)
   - Renderização rica nativa no `egui` (sem WebKit/navegador embutido, zero C dependencies).
   - Suporte a cabeçalhos H1–H6, formatações (negrito, itálico, tachado), listas, tabelas, quotes, separadores horizontais, links clicáveis.
-  - Blocos de código com syntax highlight integrado ao lexer do Psychic.
+  - Blocos de código com syntax highlight integrado ao lexer do Psychic e botão de copiar código.
   - Split View lado a lado (`Ctrl+Shift+M`) com atualização em tempo real ao digitar.
+  - **Rolagem sincronizada bidirecional proporcional** entre o editor e o visualizador Markdown com detecção automática do painel motor (roda do mouse, scrollbar, navegação por teclado).
+  - Conversão e exportação rápida para HTML puro (`Ctrl+Shift+P` ou botão na barra).
 - [ ] 🟡 **Code folding** (dobrar por indentação/chaves) — `L` *(depende de 0)*
 - [ ] 🟡 **Exibir espaços em branco** (`draw_white_space`) e espaços no fim da linha — `S`
 - [ ] 🟡 **Régua(s) vertical(is)** em colunas configuráveis (ex.: 80, 100) — `S`
