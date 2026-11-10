@@ -38,6 +38,8 @@ pub enum EditorCommand {
     ToggleLineEnding,
     ToggleSidebar,
     ToggleMinimap,
+    ToggleMarkdownPreview,
+    CopyMarkdownHtml,
     ToggleSearch,
     ToggleWordWrap,
     GotoLinePrompt,
@@ -208,6 +210,18 @@ pub fn built_in_commands() -> Vec<CommandItem> {
             label: "Toggle Minimap (Mostrar/Ocultar Minimapa)".to_string(),
             shortcut: "Alt+M",
             command: EditorCommand::ToggleMinimap,
+        },
+        CommandItem {
+            category: "View",
+            label: "Toggle Markdown Preview (Visualizar Markdown Lado a Lado)".to_string(),
+            shortcut: "Ctrl+Shift+M",
+            command: EditorCommand::ToggleMarkdownPreview,
+        },
+        CommandItem {
+            category: "Markdown",
+            label: "Copy Markdown as HTML (Copiar como HTML)".to_string(),
+            shortcut: "",
+            command: EditorCommand::CopyMarkdownHtml,
         },
         CommandItem {
             category: "View",

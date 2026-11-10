@@ -12,6 +12,7 @@ eframe = { version = "0.31", default-features = false, features = [
     "x11",
 ] }
 egui = "0.31"
+pulldown-cmark = { version = "0.13.6", default-features = false, features = ["html"] }
 ropey = "1.6"
 
 # Otimiza todas as bibliotecas (syntect, regex, egui) em nível máximo mesmo no `cargo run`

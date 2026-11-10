@@ -111,6 +111,48 @@ impl PsychicEditorApp {
                         self.open_palette(PaletteMode::CommandPalette, String::new());
                     }
 
+                    // Botão rápido para alternar Preview quando o arquivo ativo for Markdown
+                    let is_active_markdown = self.active_tab_ref().map_or(false, |t| {
+                        t.syntax_name == "Markdown"
+                            || t.path
+                                .as_ref()
+                                .and_then(|p| p.extension())
+                                .and_then(|e| e.to_str())
+                                .map_or(false, |ext| {
+                                    ext.eq_ignore_ascii_case("md")
+                                        || ext.eq_ignore_ascii_case("markdown")
+                                })
+                    });
+
+                    if is_active_markdown {
+                        ui.add_space(6.0);
+                        let preview_color = if self.markdown_preview {
+                            Color32::from_rgb(255, 175, 80)
+                        } else {
+                            Color32::from_rgb(160, 165, 175)
+                        };
+                        let preview_tip = if self.markdown_preview {
+                            "Ocultar Preview Markdown (Ctrl+Shift+M)"
+                        } else {
+                            "Mostrar Preview Markdown Lado a Lado (Ctrl+Shift+M)"
+                        };
+                        if ui
+                            .add(
+                                egui::Button::new(
+                                    RichText::new(" Preview")
+                                        .size(13.0)
+                                        .color(preview_color),
+                                )
+                                .frame(false),
+                            )
+                            .on_hover_cursor(CursorIcon::PointingHand)
+                            .on_hover_text(preview_tip)
+                            .clicked()
+                        {
+                            self.execute_command(EditorCommand::ToggleMarkdownPreview);
+                        }
+                    }
+
                     ui.add_space(4.0);
                     ui.separator();
                     ui.add_space(4.0);
